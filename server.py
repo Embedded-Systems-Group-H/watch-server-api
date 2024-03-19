@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify
 from os import listdir
 from os.path import isfile, join
 from threading import Thread
+import numpy as np
 import time
 
 """
@@ -21,6 +22,16 @@ Format:
 
 CSV_PATH = "./data/"
 
+from itertools import groupby
+
+# things = [("animal", "bear"), ("animal", "duck"), ("plant", "cactus"), ("vehicle", "speed boat"), ("vehicle", "school bus")]
+
+# for key, group in groupby(things, lambda x: x[0]):
+#     for thing in group:
+#         print("A %s is a %s." % (thing[1], key))
+#     print("")
+    
+
 class TrainingSession:
     def __init__(self, id):
         self.in_progress = True
@@ -33,11 +44,17 @@ class TrainingSession:
         self.save_delay = 1
         self.save_task = Thread(target = self._save_loop)
         self.save_task.start()
+        self.start_time = time.time()
 
     def end_session(self):
         self.in_progress = False
         self.keep_saving = False
+        self.end_time = time.time()
         self.save_task.join()
+
+        # data = {"id": self.id, ""}
+        self.end_time = time.time()
+
 
     def add_gps(self, ts, lat, long):
         self.gps_data.append((ts, lat, long))
@@ -46,6 +63,16 @@ class TrainingSession:
     def add_step_count(self, ts, step_count):
         self.step_count_data.append((ts, step_count))
         self.modified = True
+
+    def _do_binning(self, data, interval = 10):
+        data = [(int(float(ts)) // interval * interval, lat, long, step_count) for (ts, lat, long, step_count) in data]
+        data = groupby(data, lambda x: x[0])
+        data = [(ts, (*list(values),)) for (ts, values) in data]
+        data = [(ts, *zip(*values)) for ts, values in data]
+        # print(data)
+        data = [(ts, np.mean([float(x) for x in lats if x]), np.mean([float(x) for x in longs if x]), max([0] + [int(x) for x in scs if x])) for ts, _, lats, longs, scs in data]
+        # print(data)
+        return data
 
     def _save_loop(self):
         while self.keep_saving:
@@ -59,7 +86,8 @@ class TrainingSession:
             data.extend([(ts, None, None, step_count) for ts,step_count in self.step_count_data])
             self.modified = False
             
-            data = sorted(data, key = lambda x: float(x[0]))
+            # data = sorted(data, key = lambda x: float(x[0]))
+            data = self._do_binning(data, 10)
             # data_str = '\n'.join(','.join(str(x) if x != None else "" for x in data))
             data_str = '\n'.join(','.join(str(y) if y != None else "" for y in x) for x in data)
 
