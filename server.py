@@ -27,14 +27,6 @@ CSV_PATH = "./data/"
 
 from itertools import groupby
 
-# things = [("animal", "bear"), ("animal", "duck"), ("plant", "cactus"), ("vehicle", "speed boat"), ("vehicle", "school bus")]
-
-# for key, group in groupby(things, lambda x: x[0]):
-#     for thing in group:
-#         print("A %s is a %s." % (thing[1], key))
-#     print("")
-    
-
 class TrainingSession:
     def __init__(self, id):
         self.in_progress = True
@@ -57,7 +49,6 @@ class TrainingSession:
 
         # data = {"id": self.id, ""}
         self.end_time = time.time()
-
 
     def add_gps(self, ts, lat, long):
         self.gps_data.append((ts, lat, long))
@@ -114,6 +105,11 @@ class TrainingSessionHandler:
     def end_session(self, id):
         self.sessions[id].end_session()
 
+    def end_sessions(self):
+        for key, value in self.sessions.values():
+            if value.in_progress:
+                self.sessions[key].end_session()
+
     def add_gps(self, id, ts, lat, long):
         self.sessions[id].add_gps(ts, lat, long)
     
@@ -151,6 +147,11 @@ def start_session(id):
 def end_session(id):
     session_handler.end_session(id)
     return f"Ended session {id}"
+
+@app.route('/api/session_end/', methods=['POST'])
+def end_session_all(id):
+    session_handler.end_sessions()
+    return f"Ended sessions"
 
 @app.route('/api/session_csv/<id>', methods=['GET'])
 def get_session_csv(id):
