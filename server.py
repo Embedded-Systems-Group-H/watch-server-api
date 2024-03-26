@@ -18,6 +18,9 @@ Format:
 /api/step_count/<id>/<timestamp>&<lat>&<long>
 
 /api/gps/<id>?ts=<timestamp>&lat=<latitude>&long=<longitude>
+
+extra:
+/api/gps?lat=<latitude>&long=<longitude>
 """
 
 CSV_PATH = "./data/"
@@ -41,7 +44,7 @@ class TrainingSession:
         self.save_file = CSV_PATH + id + ".csv"
         self.modified = False
         self.keep_saving = True
-        self.save_delay = 1
+        self.save_delay = 20
         self.save_task = Thread(target = self._save_loop)
         self.save_task.start()
         self.start_time = time.time()
@@ -63,16 +66,25 @@ class TrainingSession:
     def add_step_count(self, ts, step_count):
         self.step_count_data.append((ts, step_count))
         self.modified = True
-
-    def _do_binning(self, data, interval = 10):
+    
+    def _do_binning(self, data, interval=10):
         data = [(int(float(ts)) // interval * interval, lat, long, step_count) for (ts, lat, long, step_count) in data]
-        data = groupby(data, lambda x: x[0])
-        data = [(ts, (*list(values),)) for (ts, values) in data]
-        data = [(ts, *zip(*values)) for ts, values in data]
-        # print(data)
-        data = [(ts, np.mean([float(x) for x in lats if x]), np.mean([float(x) for x in longs if x]), max([0] + [int(x) for x in scs if x])) for ts, _, lats, longs, scs in data]
-        # print(data)
-        return data
+        data = groupby(sorted(data, key = lambda x: x[0]), lambda x: x[0])
+
+        processed_data = []
+        for ts, values in data:
+            values = list(values)
+            lats = [float(x[1]) for x in values if x[1] is not None]
+            longs = [float(x[2]) for x in values if x[2] is not None]
+            step_counts = [int(x[3]) for x in values if x[3] is not None]
+
+            avg_lat = np.mean(lats) if lats else None
+            avg_long = np.mean(longs) if longs else None
+            max_step_count = max(step_counts, default=0)
+
+            processed_data.append((ts, avg_long, avg_lat, max_step_count))
+
+        return processed_data
 
     def _save_loop(self):
         while self.keep_saving:
@@ -82,13 +94,11 @@ class TrainingSession:
                 continue
 
             print("Saving...")
-            data = [(ts, lat, long, None) for ts,lat,long in self.gps_data]
-            data.extend([(ts, None, None, step_count) for ts,step_count in self.step_count_data])
+            data = [(ts, lat, long, None) for ts, lat, long in self.gps_data]
+            data.extend([(ts, None, None, step_count) for ts, step_count in self.step_count_data])
             self.modified = False
             
-            # data = sorted(data, key = lambda x: float(x[0]))
             data = self._do_binning(data, 10)
-            # data_str = '\n'.join(','.join(str(x) if x != None else "" for x in data))
             data_str = '\n'.join(','.join(str(y) if y != None else "" for y in x) for x in data)
 
             with open(self.save_file, "w") as f:
@@ -106,6 +116,11 @@ class TrainingSessionHandler:
 
     def add_gps(self, id, ts, lat, long):
         self.sessions[id].add_gps(ts, lat, long)
+    
+    def add_gps(self, ts, lat, long):
+        for session in self.sessions.values():
+            if session.in_progress:
+                session.add_gps(ts, lat, long)
 
     def add_step_count(self, id, ts, step_count):
         self.sessions[id].add_step_count(ts, step_count)
@@ -152,14 +167,34 @@ def get_session_csv(id):
 def post_gps_data(id):
     lat = request.args.get('lat')
     long = request.args.get('long')
-    timestamp = request.args.get('ts')
+    try:
+        timestamp = request.args.get('ts')
+    except:
+        timestamp = time.time()
+    timestamp = time.time()
     session_handler.add_gps(id, timestamp, lat, long)
+    return f"GPS Data Received: ID={id}, Timestamp={timestamp}, Lat={lat}, Long={long}"
+
+@app.route('/api/gps', methods=['POST'])
+def post_gps_data2():
+    lat = request.args.get('lat')
+    long = request.args.get('long')
+    try:
+        timestamp = request.args.get('ts')
+    except:
+        timestamp = time.time()
+    timestamp = time.time()
+    session_handler.add_gps(timestamp, lat, long)
     return f"GPS Data Received: ID={id}, Timestamp={timestamp}, Lat={lat}, Long={long}"
 
 @app.route('/api/step_count/<id>', methods=['POST'])
 def post_step_count(id):
     step_count = request.args.get('count')
-    timestamp = request.args.get('ts')
+    try:
+        timestamp = request.args.get('ts')
+    except:
+        timestamp = time.time()
+    timestamp = time.time()
     session_handler.add_step_count(id, timestamp, step_count)
     return f"Step Count Data Received: ID={id}, Timestamp={timestamp}, Step Count={step_count}"
 
